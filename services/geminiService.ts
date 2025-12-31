@@ -3,35 +3,36 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, ResumeData } from "../types";
 
 /**
- * Robust JSON extraction.
+ * Robust JSON extraction from LLM response.
  */
 const extractJson = (text: string | undefined): string => {
   if (!text) return "{}";
-  try {
-    // Look for JSON blocks
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) return match[0];
-    return text.trim();
-  } catch (e) {
-    console.error("JSON extraction error:", e);
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) {
+    return text.substring(start, end + 1);
   }
-  return "{}";
+  return text.trim() || "{}";
 };
 
 /**
- * Parses raw resume text into structured data.
+ * Parses raw resume text into structured data using Flash for speed.
  */
 export const parseResumeText = async (text: string): Promise<ResumeData> => {
+  if (!process.env.API_KEY) {
+    throw new Error("API Key is missing. Please ensure it is configured in your environment.");
+  }
+
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const input = text.substring(0, 3000); // Truncate for speed
+  const input = text.substring(0, 8000); 
   
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Extract career details into JSON. Input: ${input}`,
+      contents: `Extract the following resume details into a structured JSON format. If a field is missing, return an empty string or empty array. 
+      Input text: ${input}`,
       config: {
         responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -68,38 +69,45 @@ export const parseResumeText = async (text: string): Promise<ResumeData> => {
       }
     });
 
-    const parsed = JSON.parse(extractJson(response.text));
+    const parsedData = JSON.parse(extractJson(response.text));
     return {
-      name: parsed.name || "Candidate Elite",
-      email: parsed.email || "",
-      phone: parsed.phone || "",
-      summary: parsed.summary || "",
-      experience: Array.isArray(parsed.experience) ? parsed.experience : [],
-      education: Array.isArray(parsed.education) ? parsed.education : [],
-      skills: Array.isArray(parsed.skills) ? parsed.skills : []
+      name: parsedData.name || "Candidate Elite",
+      email: parsedData.email || "",
+      phone: parsedData.phone || "",
+      summary: parsedData.summary || "",
+      experience: Array.isArray(parsedData.experience) ? parsedData.experience : [],
+      education: Array.isArray(parsedData.education) ? parsedData.education : [],
+      skills: Array.isArray(parsedData.skills) ? parsedData.skills : []
     };
   } catch (e) {
-    console.error("Parsing failure:", e);
+    console.error("Resume parsing error:", e);
     return { name: "Candidate Elite", email: "", phone: "", summary: "", experience: [], education: [], skills: [] };
   }
 };
 
 /**
- * Core analysis engine.
+ * Core analysis engine using Flash for lower latency and high reliability.
  */
 export const analyzeResume = async (resumeData: ResumeData, jobTitle: string, jobDescription: string): Promise<AnalysisResult> => {
+  if (!process.env.API_KEY) {
+    throw new Error("API Key is missing.");
+  }
+
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  // Compact data for faster context processing
-  const resumeJson = JSON.stringify({
+  const resumeSummary = JSON.stringify({
     summary: resumeData.summary,
     skills: resumeData.skills,
-    exp: resumeData.experience?.map(e => ({ r: e.role, d: e.description }))
-  }).substring(0, 2000);
+    experience: resumeData.experience?.map(e => ({ role: e.role, desc: e.description }))
+  }).substring(0, 6000);
 
-  const prompt = `Analyze this profile for "${jobTitle}".
-  Resume JSON: ${resumeJson}
-  Job Description (snippet): ${jobDescription.substring(0, 1500)}`;
+  const prompt = `Act as an expert Recruiter and ATS Analyst. Analyze this resume for the role of "${jobTitle}".
+  
+  Target Job Description: ${jobDescription.substring(0, 4000)}
+  
+  Resume Context: ${resumeSummary}
+  
+  Return a comprehensive evaluation in JSON. Ensure all numerical scores are between 0 and 100.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -107,7 +115,6 @@ export const analyzeResume = async (resumeData: ResumeData, jobTitle: string, jo
       contents: prompt,
       config: {
         responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -156,21 +163,20 @@ export const analyzeResume = async (resumeData: ResumeData, jobTitle: string, jo
 
     const data = JSON.parse(extractJson(response.text));
     
-    // Fill in defaults if model skipped optional fields
     return {
-      atsScore: data.atsScore ?? 75,
-      readabilityScore: data.readabilityScore ?? 80,
-      keywordMatchScore: data.keywordMatchScore ?? 70,
-      recruiterSimulationScore: data.recruiterSimulationScore ?? 85,
+      atsScore: data.atsScore ?? 70,
+      readabilityScore: data.readabilityScore ?? 75,
+      keywordMatchScore: data.keywordMatchScore ?? 65,
+      recruiterSimulationScore: data.recruiterSimulationScore ?? 80,
       missingSkills: data.missingSkills || [],
       matchedSkills: data.matchedSkills || [],
       skillRoadmaps: data.skillRoadmaps || [],
       weeklyRoadmap: data.weeklyRoadmap || [],
-      tailoredSummary: data.tailoredSummary || "Expert industry professional with core alignment to target competencies.",
+      tailoredSummary: data.tailoredSummary || "Expert professional with alignment to target core competencies.",
       enhancedBullets: data.enhancedBullets || []
     };
   } catch (e: any) {
-    console.error("Analysis engine failure:", e);
-    throw new Error("The AI engine took too long to respond. Please try again with a shorter job description.");
+    console.error("Analysis failure:", e);
+    throw new Error("Analysis failed. This might be due to a network error or an issue with the AI service. Please try again.");
   }
 };

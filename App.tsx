@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -129,28 +128,25 @@ const App: React.FC = () => {
       
       if (result) {
         setAnalysisResult(result);
+        setAppState(AppState.RESULT);
         
-        // Persist to Supabase if authenticated
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { error: insertError } = await supabase
-            .from('analyses')
-            .insert([
-              {
+        // Persist to Supabase asynchronously in the background so it doesn't block UI
+        (async () => {
+          try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+              await supabase.from('analyses').insert([{
                 user_id: user.id,
                 job_title: jobTitle,
                 job_description: jobDescription,
                 resume_data: currentData,
                 analysis_result: result
-              }
-            ]);
-          
-          if (insertError) {
-            console.error("Database persistence error:", insertError.message);
+              }]);
+            }
+          } catch (dbErr) {
+            console.error("History persistence failed:", dbErr);
           }
-        }
-        
-        setAppState(AppState.RESULT);
+        })();
       } else {
         throw new Error("Analysis engine returned no data.");
       }
@@ -248,7 +244,7 @@ const App: React.FC = () => {
               setJobDescription={setJobDescription} 
               onAnalyze={handleAnalyze} 
               onFileChange={handleFileUpload}
-              loading={false}
+              loading={appState === AppState.ANALYZING}
             />
           )}
 
