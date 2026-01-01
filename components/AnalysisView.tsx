@@ -1,7 +1,8 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { AnalysisResult } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, Radar } from 'recharts';
+import { generateVoiceBriefing, decodeAudio } from '../services/geminiService';
 
 interface AnalysisViewProps {
   result: AnalysisResult;
@@ -11,54 +12,79 @@ interface AnalysisViewProps {
 }
 
 const AnalysisView: React.FC<AnalysisViewProps> = ({ result, onReset, onViewResume, onActionPlan }) => {
+  const [isPlayingBrief, setIsPlayingBrief] = useState(false);
+
   const chartData = [
     { name: 'Match', value: result.keywordMatchScore },
     { name: 'Gap', value: Math.max(0, 100 - result.keywordMatchScore) },
   ];
 
   const radarData = [
-    { subject: 'ATS Score', A: result.atsScore, fullMark: 100 },
+    { subject: 'ATS Logic', A: result.atsScore, fullMark: 100 },
     { subject: 'Readability', A: result.readabilityScore, fullMark: 100 },
+    { subject: 'Impact', A: result.quantifiedImpactScore || 70, fullMark: 100 },
+    { subject: 'Format', A: result.formattingHealthScore || 80, fullMark: 100 },
     { subject: 'Keywords', A: result.keywordMatchScore, fullMark: 100 },
-    { subject: 'Impact', A: result.recruiterSimulationScore || 85, fullMark: 100 },
   ];
 
   const COLORS = ['#4f46e5', '#f1f5f9'];
 
+  const handlePlayBriefing = async () => {
+    if (isPlayingBrief) return;
+    setIsPlayingBrief(true);
+    try {
+      const audioData = await generateVoiceBriefing(result.voiceBriefingText);
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const buffer = await decodeAudio(audioData, ctx);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.onended = () => setIsPlayingBrief(false);
+      source.start();
+    } catch (err) {
+      console.error("Audio failed", err);
+      setIsPlayingBrief(false);
+    }
+  };
+
   return (
     <div className="w-full max-w-6xl mx-auto py-8 px-4 space-y-10 animate-fade-in pb-20">
-      
-      {/* Header Info */}
-      <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8">
-        <div>
-          <h2 className="text-3xl font-extrabold text-slate-900">Analysis Complete</h2>
-          <p className="text-slate-500 mt-1">Here is how your profile aligns with the target role.</p>
+      <div className="flex flex-col md:flex-row items-start justify-between gap-6 mb-8">
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full text-[10px] font-black uppercase tracking-widest">
+            <i className="fa-solid fa-circle-check"></i>
+            Optimization Complete
+          </div>
+          <h2 className="text-4xl font-black text-slate-900 tracking-tight">Executive Dashboard</h2>
+          <p className="text-slate-500 font-medium">Strategic alignment analysis for your next career move.</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
            <button 
-             onClick={onViewResume}
-             className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all flex items-center gap-2"
+             onClick={handlePlayBriefing}
+             disabled={isPlayingBrief}
+             className="px-6 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-black transition-all flex items-center gap-2 shadow-lg disabled:opacity-50"
            >
-             <i className="fa-solid fa-file-lines"></i>
-             View Optimized CV
+             <i className={`fa-solid ${isPlayingBrief ? 'fa-spinner animate-spin' : 'fa-play-circle'}`}></i>
+             AI Coach Briefing
            </button>
            <button 
-             onClick={onReset}
-             className="px-6 py-3 bg-white text-slate-700 font-bold rounded-xl border border-slate-200 hover:bg-slate-50 transition-all"
+             onClick={onViewResume}
+             className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-lg"
            >
-             New Analysis
+             <i className="fa-solid fa-file-pdf"></i>
+             Optimized Resume
            </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Core Match Chart */}
-        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center">
-           <h3 className="text-lg font-bold text-slate-900 mb-8 w-full">Keyword Match Rate</h3>
-           <div className="relative w-full aspect-square max-w-[200px] mb-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Main Stats Card */}
+        <div className="lg:col-span-4 bg-white p-8 rounded-3xl border border-slate-200 shadow-sm flex flex-col items-center justify-center space-y-8">
+           <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest text-center">ATS Match Compatibility</h3>
+           <div className="relative w-full aspect-square max-w-[220px]">
              <ResponsiveContainer width="100%" height="100%">
                <PieChart>
-                 <Pie data={chartData} innerRadius="75%" outerRadius="100%" paddingAngle={5} dataKey="value" stroke="none" cornerRadius={4}>
+                 <Pie data={chartData} innerRadius="75%" outerRadius="100%" paddingAngle={5} dataKey="value" stroke="none" cornerRadius={6}>
                    {chartData.map((entry, index) => (
                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                    ))}
@@ -66,82 +92,100 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({ result, onReset, onViewResu
                </PieChart>
              </ResponsiveContainer>
              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-                <p className="text-4xl font-extrabold text-indigo-600">{result.keywordMatchScore}%</p>
+                <p className="text-5xl font-black text-indigo-600">{result.keywordMatchScore}%</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">Total Alignment</p>
              </div>
            </div>
-           <p className="text-sm text-center text-slate-500 leading-relaxed">
-             Your profile matches the essential terminology required for this position.
-           </p>
+           <div className="w-full space-y-3">
+              <div className="flex justify-between text-xs font-bold uppercase tracking-wider text-slate-500">
+                <span>Formatting Health</span>
+                <span className="text-slate-900">{result.formattingHealthScore}%</span>
+              </div>
+              <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                <div className="h-full bg-indigo-500" style={{ width: `${result.formattingHealthScore}%` }}></div>
+              </div>
+           </div>
         </div>
 
-        {/* Detailed Stats */}
-        <div className="lg:col-span-2 bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-           <h3 className="text-lg font-bold text-slate-900 mb-8">Diagnostic Breakdown</h3>
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-              <div className="space-y-6">
-                 {[
-                   { label: 'ATS Formatting', value: result.atsScore, color: 'bg-indigo-600' },
-                   { label: 'Content Readability', value: result.readabilityScore, color: 'bg-indigo-400' },
-                   { label: 'Market Impact', value: result.recruiterSimulationScore || 85, color: 'bg-indigo-800' }
-                 ].map((stat, i) => (
-                   <div key={i} className="space-y-2">
-                      <div className="flex justify-between items-end">
-                         <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">{stat.label}</span>
-                         <span className="text-lg font-bold text-slate-900">{stat.value}%</span>
-                      </div>
-                      <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                         <div className={`h-full ${stat.color} transition-all duration-700`} style={{ width: `${stat.value}%` }}></div>
-                      </div>
-                   </div>
-                 ))}
+        {/* Diagnostic Chart */}
+        <div className="lg:col-span-8 bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+           <div className="flex justify-between items-center mb-10">
+              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Diagnostic Breakdown</h3>
+              <div className="flex gap-4">
+                 <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase">
+                    <div className="w-2 h-2 rounded-full bg-indigo-500"></div> Current
+                 </div>
               </div>
-              <div className="h-[220px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
-                    <PolarGrid stroke="#e2e8f0" />
-                    <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 10, fontWeight: 'bold' }} />
-                    <Radar name="Score" dataKey="A" stroke="#4f46e5" fill="#4f46e5" fillOpacity={0.1} />
-                  </RadarChart>
-                </ResponsiveContainer>
-              </div>
+           </div>
+           <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
+                  <PolarGrid stroke="#e2e8f0" />
+                  <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 11, fontWeight: '800' }} />
+                  <Radar name="Score" dataKey="A" stroke="#4f46e5" fill="#4f46e5" fillOpacity={0.15} />
+                </RadarChart>
+              </ResponsiveContainer>
            </div>
         </div>
       </div>
 
-      {/* Narrative Section */}
-      <div className="bg-white p-10 rounded-2xl border border-slate-200 shadow-sm space-y-8">
-         <div>
-            <h3 className="text-xl font-bold text-slate-900">Executive Summary Optimization</h3>
-            <p className="text-slate-500 mt-1">AI-reconstructed profile summary for maximum impact.</p>
-         </div>
-         
-         <div className="p-6 bg-slate-50 border border-slate-100 rounded-xl italic text-slate-700 leading-relaxed">
-            "{result.tailoredSummary}"
+      {/* Critical Gaps Section */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+         <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+            <h3 className="text-sm font-black text-rose-500 uppercase tracking-widest flex items-center gap-2">
+               <i className="fa-solid fa-triangle-exclamation"></i>
+               Critical Missing Keywords
+            </h3>
+            <div className="flex flex-wrap gap-2">
+               {(result.missingKeywords || []).map((keyword, i) => (
+                  <span key={i} className="px-4 py-2 bg-rose-50 text-rose-700 text-xs font-bold rounded-xl border border-rose-100">
+                     {keyword}
+                  </span>
+               ))}
+            </div>
          </div>
 
-         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {(result.enhancedBullets || []).slice(0, 4).map((bullet, idx) => (
-              <div key={idx} className="flex gap-4 p-5 bg-white border border-slate-100 rounded-xl items-start">
-                 <div className="w-6 h-6 bg-indigo-50 text-indigo-600 rounded flex items-center justify-center shrink-0 mt-1">
-                    <i className="fa-solid fa-check text-xs"></i>
-                 </div>
-                 <p className="text-sm text-slate-700">{bullet}</p>
-              </div>
-            ))}
+         <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+            <h3 className="text-sm font-black text-indigo-500 uppercase tracking-widest flex items-center gap-2">
+               <i className="fa-solid fa-sparkles"></i>
+               AI Optimized Summary
+            </h3>
+            <p className="text-sm text-slate-600 leading-relaxed italic font-medium">
+               "{result.tailoredSummary}"
+            </p>
          </div>
       </div>
 
-      {/* CTA */}
-      <div className="bg-slate-900 rounded-2xl p-10 text-center text-white space-y-6">
-         <h3 className="text-2xl font-bold">Ready to take action?</h3>
-         <p className="text-slate-400 max-w-xl mx-auto">We've identified your skill gaps and created a personalized roadmap to help you bridge them.</p>
-         <button 
-           onClick={onActionPlan}
-           className="px-10 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg inline-flex items-center gap-3 active:scale-95"
-         >
-           View Strategic Path
-           <i className="fa-solid fa-arrow-right"></i>
-         </button>
+      {/* STAR Implementation Preview */}
+      <div className="bg-indigo-600 rounded-[2.5rem] p-10 lg:p-16 text-white relative overflow-hidden group">
+         <div className="relative z-10 space-y-10">
+            <div className="space-y-4">
+               <h3 className="text-3xl font-black italic tracking-tight">STAR Impact Reconstruction</h3>
+               <p className="text-indigo-100 font-medium max-w-xl">We've transformed your experience bullets to highlight quantified impact—the #1 thing modern recruiters look for.</p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+               {(result.enhancedBullets || []).slice(0, 2).map((bullet, idx) => (
+                  <div key={idx} className="bg-white/10 backdrop-blur-md p-8 rounded-3xl border border-white/20 hover:bg-white/20 transition-all duration-300">
+                     <div className="flex gap-4">
+                        <div className="w-8 h-8 rounded-full bg-white text-indigo-600 flex items-center justify-center shrink-0 font-black text-xs">
+                           {idx + 1}
+                        </div>
+                        <p className="text-sm font-semibold leading-relaxed">{bullet}</p>
+                     </div>
+                  </div>
+               ))}
+            </div>
+
+            <button 
+              onClick={onActionPlan}
+              className="mt-6 px-10 py-4 bg-white text-indigo-600 font-black rounded-2xl hover:bg-indigo-50 transition-all shadow-2xl flex items-center gap-3 active:scale-95"
+            >
+              Bridge Your Skill Gaps
+              <i className="fa-solid fa-arrow-right"></i>
+            </button>
+         </div>
+         <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/4 w-[600px] h-[600px] bg-white/5 rounded-full blur-[100px] pointer-events-none"></div>
       </div>
     </div>
   );

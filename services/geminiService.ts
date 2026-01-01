@@ -1,36 +1,23 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { AnalysisResult, ResumeData } from "../types";
 
-/**
- * Robust JSON extraction from LLM response.
- */
 const extractJson = (text: string | undefined): string => {
   if (!text) return "{}";
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end !== -1 && end > start) {
-    return text.substring(start, end + 1);
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    return text.substring(firstBrace, lastBrace + 1);
   }
-  return text.trim() || "{}";
+  return text.trim();
 };
 
-/**
- * Parses raw resume text into structured data using Flash for speed.
- */
 export const parseResumeText = async (text: string): Promise<ResumeData> => {
-  if (!process.env.API_KEY) {
-    throw new Error("API Key is missing. Please ensure it is configured in your environment.");
-  }
-
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const input = text.substring(0, 8000); 
-  
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Extract the following resume details into a structured JSON format. If a field is missing, return an empty string or empty array. 
-      Input text: ${input}`,
+      contents: `Extract professional data from this resume text into JSON format. Include: name, email, phone, summary, experience (role, company, duration, description as array), education (degree, institution, year), and skills as a flat array. TEXT: ${text.substring(0, 8000)}`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -68,73 +55,55 @@ export const parseResumeText = async (text: string): Promise<ResumeData> => {
         }
       }
     });
-
-    const parsedData = JSON.parse(extractJson(response.text));
-    return {
-      name: parsedData.name || "Candidate Elite",
-      email: parsedData.email || "",
-      phone: parsedData.phone || "",
-      summary: parsedData.summary || "",
-      experience: Array.isArray(parsedData.experience) ? parsedData.experience : [],
-      education: Array.isArray(parsedData.education) ? parsedData.education : [],
-      skills: Array.isArray(parsedData.skills) ? parsedData.skills : []
-    };
+    return JSON.parse(extractJson(response.text));
   } catch (e) {
-    console.error("Resume parsing error:", e);
-    return { name: "Candidate Elite", email: "", phone: "", summary: "", experience: [], education: [], skills: [] };
+    console.error("Parse error:", e);
+    return { name: "", email: "", phone: "", summary: "", experience: [], education: [], skills: [] };
   }
 };
 
-/**
- * Core analysis engine using Flash for lower latency and high reliability.
- */
 export const analyzeResume = async (resumeData: ResumeData, jobTitle: string, jobDescription: string): Promise<AnalysisResult> => {
-  if (!process.env.API_KEY) {
-    throw new Error("API Key is missing.");
-  }
-
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const prompt = `You are a Senior Technical Recruiter. Analyze this resume against the job description for the role of ${jobTitle}. 
+  JOB DESCRIPTION: ${jobDescription}
+  RESUME DATA: ${JSON.stringify(resumeData)}
   
-  const resumeSummary = JSON.stringify({
-    summary: resumeData.summary,
-    skills: resumeData.skills,
-    experience: resumeData.experience?.map(e => ({ role: e.role, desc: e.description }))
-  }).substring(0, 6000);
-
-  const prompt = `Act as an expert Recruiter and ATS Analyst. Analyze this resume for the role of "${jobTitle}".
-  
-  Target Job Description: ${jobDescription.substring(0, 4000)}
-  
-  Resume Context: ${resumeSummary}
-  
-  Return a comprehensive evaluation in JSON. Ensure all numerical scores are between 0 and 100.`;
+  Provide a comprehensive analysis including:
+  1. ATS compatibility score (0-100).
+  2. Keyword match score.
+  3. Readability and formatting scores.
+  4. Missing high-impact keywords.
+  5. A tailored professional summary for this specific job.
+  6. Enhanced experience bullets using the STAR method (quantified impact).
+  7. A 4-week roadmap to bridge skill gaps.
+  8. A script for a brief voice AI coaching session.`;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
+        thinkingConfig: { thinkingBudget: 4000 },
         responseSchema: {
           type: Type.OBJECT,
           properties: {
             atsScore: { type: Type.NUMBER },
             readabilityScore: { type: Type.NUMBER },
             keywordMatchScore: { type: Type.NUMBER },
-            recruiterSimulationScore: { type: Type.NUMBER },
-            missingSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+            quantifiedImpactScore: { type: Type.NUMBER },
+            formattingHealthScore: { type: Type.NUMBER },
+            missingKeywords: { type: Type.ARRAY, items: { type: Type.STRING } },
             matchedSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
             tailoredSummary: { type: Type.STRING },
             enhancedBullets: { type: Type.ARRAY, items: { type: Type.STRING } },
+            voiceBriefingText: { type: Type.STRING },
+            recruiterSimulationScore: { type: Type.NUMBER },
             weeklyRoadmap: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
-                properties: {
-                  week: { type: Type.STRING },
-                  goal: { type: Type.STRING },
-                  focus: { type: Type.STRING }
-                }
+                properties: { week: { type: Type.STRING }, goal: { type: Type.STRING }, focus: { type: Type.STRING } }
               }
             },
             skillRoadmaps: {
@@ -146,6 +115,7 @@ export const analyzeResume = async (resumeData: ResumeData, jobTitle: string, jo
                   whyItMatters: { type: Type.STRING },
                   learningPath: { type: Type.ARRAY, items: { type: Type.STRING } },
                   practiceTask: { type: Type.STRING },
+                  estimatedTime: { type: Type.STRING },
                   resources: {
                     type: Type.ARRAY,
                     items: {
@@ -160,23 +130,40 @@ export const analyzeResume = async (resumeData: ResumeData, jobTitle: string, jo
         }
       }
     });
-
-    const data = JSON.parse(extractJson(response.text));
-    
-    return {
-      atsScore: data.atsScore ?? 70,
-      readabilityScore: data.readabilityScore ?? 75,
-      keywordMatchScore: data.keywordMatchScore ?? 65,
-      recruiterSimulationScore: data.recruiterSimulationScore ?? 80,
-      missingSkills: data.missingSkills || [],
-      matchedSkills: data.matchedSkills || [],
-      skillRoadmaps: data.skillRoadmaps || [],
-      weeklyRoadmap: data.weeklyRoadmap || [],
-      tailoredSummary: data.tailoredSummary || "Expert professional with alignment to target core competencies.",
-      enhancedBullets: data.enhancedBullets || []
-    };
-  } catch (e: any) {
-    console.error("Analysis failure:", e);
-    throw new Error("Analysis failed. This might be due to a network error or an issue with the AI service. Please try again.");
+    return JSON.parse(extractJson(response.text));
+  } catch (e) {
+    throw new Error("Analysis failed. Please try again.");
   }
+};
+
+export const generateVoiceBriefing = async (text: string): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash-preview-tts",
+    contents: [{ parts: [{ text: text.substring(0, 1000) }] }],
+    config: {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName: 'Kore' },
+        },
+      },
+    },
+  });
+  return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
+};
+
+export const decodeAudio = async (base64: string, context: AudioContext) => {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  const dataInt16 = new Int16Array(bytes.buffer);
+  const buffer = context.createBuffer(1, dataInt16.length, 24000);
+  const channelData = buffer.getChannelData(0);
+  for (let i = 0; i < dataInt16.length; i++) {
+    channelData[i] = dataInt16[i] / 32768.0;
+  }
+  return buffer;
 };

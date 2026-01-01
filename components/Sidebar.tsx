@@ -12,10 +12,10 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ activeState, onNavigate, hasResult, isAuthenticated }) => {
   const menuItems = [
     { id: AppState.IDLE, icon: 'fa-house', label: 'Home' },
-    { id: AppState.UPLOADING, icon: 'fa-plus', label: 'Start Analysis' },
-    { id: AppState.RESULT, icon: 'fa-chart-simple', label: 'My Report', disabled: !hasResult },
+    { id: AppState.UPLOADING, icon: 'fa-plus', label: 'New Analysis' },
+    { id: AppState.RESULT, icon: 'fa-chart-simple', label: 'Match Report', disabled: !hasResult },
     { id: AppState.ROADMAP, icon: 'fa-map', label: 'Action Plan', disabled: !hasResult },
-    { id: AppState.HISTORY, icon: 'fa-clock-rotate-left', label: 'History', hidden: !isAuthenticated },
+    { id: AppState.HISTORY, icon: 'fa-clock-rotate-left', label: 'Vault', hidden: !isAuthenticated },
   ];
 
   return (
@@ -28,7 +28,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeState, onNavigate, hasResult, i
       </div>
 
       <nav className="flex-1 p-6 space-y-2 overflow-y-auto">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] px-3 mb-4">Platform</p>
         {menuItems.filter(item => !item.hidden).map((item) => (
           <button
             key={item.id}

@@ -42,30 +42,20 @@ export interface WeeklyRoadmapItem {
   focus: string;
 }
 
-export interface GroundingSource {
-  title: string;
-  url: string;
-}
-
-export interface Badge {
-  name: string;
-  icon: string;
-  color: string;
-}
-
 export interface AnalysisResult {
   atsScore: number;
   readabilityScore: number;
   keywordMatchScore: number;
-  missingSkills: string[];
+  quantifiedImpactScore: number;
+  formattingHealthScore: number;
+  missingKeywords: string[];
   matchedSkills: string[];
-  skillRoadmaps: SkillRoadmapItem[];
-  weeklyRoadmap: WeeklyRoadmapItem[];
   tailoredSummary: string;
   enhancedBullets: string[];
   recruiterSimulationScore: number;
-  badges?: Badge[];
-  groundingSources?: GroundingSource[];
+  skillRoadmaps: SkillRoadmapItem[];
+  weeklyRoadmap: WeeklyRoadmapItem[];
+  voiceBriefingText: string;
 }
 
 export enum AppState {
